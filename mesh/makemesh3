@@ -1,0 +1,8 @@
+#!/bin/bash
+
+base_name='mesh_full'
+fname='full'
+
+gmsh $base_name.geo -format msh2 -3 -o $fname.msh
+dolfin-convert $fname.msh $fname.xml
+python3 xml_to_h5.py $fname
