@@ -16,7 +16,7 @@ class Params():
         #---------------------------------------------
         # Simulation end time (normalised by t_d)
         #---------------------------------------------
-        self.t_end = 0.18
+        self.t_end = 0.32
 
         #---------------------------------------------
         # constants
@@ -45,15 +45,17 @@ class Params():
         self.V_0 = 30e-6 / 1000                 # Volume (30 uL)
         
         self.h_f = 289e-6                       # Film thickness
-        self.V_e = 2e-8 * (1 - RH / 100) * 2    # Evap rate
+        self.V_e = 3.8e-8 * (1 - RH / 100) * 2  # Evap rate
         self.t_d = self.h_f / self.V_e          # Drying time
 
         # gel time (= 700 s for 1M salt soln, e.g. the default)
         self.t_g = t_g
 
-        # Shear modulus
+        # Reference modulus
         self.G_0 = G_0          # characteristic value
-        self.G_p = 6.11e8       # packing stiffness (obtained from fitting)
+
+        # Stiffness of packed solid (Pa)
+        self.sigma_p = 2.03e7
 
         # Poisson's ratio of the packing
         self.nu_p = 0.2
@@ -65,7 +67,6 @@ class Params():
 
         # fluid fractions
         self.phi_f_0 = 1 - self.phi_0   # initial fluid
-        self.phi_f_inf = 0.0            # air
 
         # Particle radius
         self.a = 6e-9
@@ -75,7 +76,6 @@ class Params():
 
         # Viscosities
         self.mu_f = 1e-3            # interstitial fludid (water)
-        self.mu_m = 8e-3            # mixture (water + nanoparticles)
 
         # Surface tension
         self.gamma = 64e-3
@@ -94,26 +94,19 @@ class Params():
         #----------------------------------------------------------------
 
         if RH <= 50:
-            self.m = 46
+            self.m = 24.4
             self.G_c = 0.24
         elif RH == 60:
-            self.m = 39
+            self.m = 20.8
             self.G_c = 0.22
         elif RH > 60: # 70 and 80
-            self.m = 38
+            self.m = 20.2
             self.G_c = 0.22
         else:
             raise Exception(f'Need values for m and G_c when RH = {RH}')
-            # 1 + 1
 
         # Flag to include stress in colloidal gel
         self.incremental = 1
-
-        # Pore blockage factor (0 if unblocked)
-        self.blockage = 0
-
-        # Flag to apply contact-stress model
-        self.contact_stress = True
 
         #----------------------------------------------------------------
         # Non-dimensional quantities
@@ -129,20 +122,8 @@ class Params():
         self.Pe = self.mu_f * self.V_e * (self.L / 2)**2 / self.k_0 / self.h_f / self.G_0
         self.Pe_p = self.V_e * (self.L / 2) / self.eps / self.D_p
 
-        # film weight
-        self.G = self.rho_0 * self.g * self.h_f * self.L**4 / self.B / self.h_b
-
-        # Actual bond number
+        # Bond number
         self.Bond = self.rho_0 * self.g * (self.L / 2)**2 / self.gamma
-
-        # Bond-ish number
-        self.Bo = self.eps**4 * self.rho_0 * self.g * (self.L / 2)**2 / self.mu_m / self.V_e
-
-        # Capillary number
-        self.Ca = self.mu_m * self.V_e / self.eps**4 / self.gamma
-
-        # Normalised shear modulus of packed region
-        self.E_p = self.G_p / self.G_0
 
         #----------------------------------------------------------------
         # flags

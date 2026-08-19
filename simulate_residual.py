@@ -1,55 +1,20 @@
 """
-Simulates a simple model of a colloidal suspension drying on a flexible cantilever
+Simulates a simple model of a colloidal suspension drying on a flexible cantilever.
+The stress in the packed solid is assumed to be due to residual
+stress arising from gel formation and shrinkage priort to solidification.
 """
 
 import numpy as np
 from scipy.integrate import solve_ivp, cumulative_trapezoid
 from params import Params
 import matplotlib.pyplot as plt
+from math import pi
 
 plt.rcParams.update({
     "font.size": 16,
     "figure.autolayout": True
     })
 
-
-
-def sigma_e_xx(phi, phi_g, pars):
-    """
-    Horizontal elastic stress
-    """
-
-    sigma = -2 * pars.nu_p / (1 - 2 * pars.nu_p) * phi_g / 3 * pars.G_p / pars.G_0 * (phi**3 - phi_g**3)
-
-    return sigma
-
-def sigma_e_zz(phi, phi_g, pars):
-    """
-    Vertical elastic stress (incremental)
-    """
-
-
-    J_p = phi_g / phi
-    # sigma = -pars.G_p / pars.G_0 * phi_g**4 / 5 * (3 / J_p**5 + 5 / J_p**3 - 8)
-    sigma = -pars.G_p / pars.G_0 * phi**5 / phi_g * (1 + 5/3 * J_p**2 - 8/3 * J_p**5) + sigma_e_xx(phi, phi_g, pars)
-
-    return sigma
-
-def sigma_p(phi, phi_g, p, pars):
-    """
-    Stress in packed solid I.
-    """
-
-    sig_e_xx = sigma_e_xx(phi, phi_g, pars)
-    sig_e_zz = sigma_e_zz(phi, phi_g, pars)
-    C = (1 - 2 * pars.nu_p) / (1 - 2 * pars.nu_p + 2 * pars.nu_p / (pars.phi_p / phi_g + phi_g / pars.phi_p))
-
-    if pars.contact_stress:
-        return sig_e_xx - sig_e_zz
-    else:
-        return sig_e_xx - sig_e_zz - C * (p - sig_e_zz)
-    # return -C * p
-    
 
 def incremental_stress(t, x, pars):
     """
@@ -67,9 +32,6 @@ def incremental_stress(t, x, pars):
     tau = j_e / h_g * (t - pars.t_g / pars.t_d)
     alpha = m * h_g / j_e
 
-    # print(t, min(alpha), max(alpha), max(tau))
-
-    # f = (tau**2 - 2 * tau + 6) / (1 - tau)**(8/3)
     f = 1 + 1 / (1 - tau)**2
     sigma = pars.incremental * G_c / alpha * (np.exp(alpha * tau) - 1) * f
 
@@ -79,13 +41,24 @@ def V_e(x):
     """
     Evaporation rate
     """
-    return 2 / np.pi / np.sqrt(1 - x**2)
+
+    a = 0.42714138
+    b = -0.3028127
+
+    c = pi * a + b
+    return 1 / c * (2 * a / np.sqrt(1 - x**2) + b)
 
 def q_p(x):
     """
     Flux from the packed region
     """
-    return 1 - 2 / np.pi * np.arcsin(x)
+
+    a = 0.42714138
+    b = -0.3028127
+
+    c = pi * a + b
+
+    return -(2 * a * np.arcsin(x) - pi * a + b * x - b) / c
 
 def h_0(x, pars):
     """
@@ -100,7 +73,7 @@ def x_p_ode(t, x_p, pars):
     """
     J_p = pars.phi_0 / pars.phi_p
 
-    return -(1-pars.blockage) * q_p(x_p) / ((1 - J_p) * h_0(x_p, pars) - V_e(x_p) * t)
+    return -q_p(x_p) / ((1 - J_p) * h_0(x_p, pars) - V_e(x_p) * t)
 
 def solve_x_p(t_span, x_p_0, pars):
     """
@@ -146,14 +119,8 @@ def compute_pre_quantities(t, x_p, pars):
     # height of packed film
     h_p = pars.phi_0 / pars.phi_p * h_0(X_p, pars)
     
-    # compute pressure
-    k_p = pars.a**2 / 45 * (1 - pars.phi_p)**2 / pars.phi_p**3
-    p_scale = pars.V_e * (pars.L/2)**2 * pars.mu_f / k_p / pars.h_f
-
-    p_0 = sigma_e_zz(pars.phi_p, pars.phi_g, pars)
-    p = p_0 + p_scale / pars.G_0 * cumulative_trapezoid(-q_p(X_p) / h_p, X_p, initial=0)
-
-    sigma_f = sigma_p(pars.phi_p, pars.phi_g, p, pars) * np.ones(N)
+    # solid stress
+    sigma_f = (pars.sigma_p / pars.G_0) * np.ones(N)
 
     X = np.r_[-X_p[::-1], -X_f[::-1], X_f, X_p]
     H = np.r_[
@@ -172,7 +139,7 @@ def compute_pre_quantities(t, x_p, pars):
     return X, H, Sigma
 
 
-def compute_post_quantities(t, x_p, x_p_0, pars, user_phi_g = None):
+def compute_post_quantities(t, x_p, x_p_0, pars):
     """
     Computes the solid/gel regions, solid/gel thickness,
     solid/gel stress, and solid/gel solid fraction after the 
@@ -197,42 +164,14 @@ def compute_post_quantities(t, x_p, x_p_0, pars, user_phi_g = None):
     # elastic deformation (gelled to current)
     J_e = h_f / h_g
     
-    # particle fraction in the liquid
+    # particle fraction in the gel
     phi_s = pars.phi_0 * h_0(X_f, pars) / h_f
 
     # gel stress
     sigma_f = incremental_stress(t, X_f, pars)
 
-
-    """
-    Compute pressure
-    """
-    k_p = pars.a**2 / 45 * (1 - pars.phi_p)**2 / pars.phi_p**3
-    p_scale = pars.V_e * (pars.L/2)**2 * pars.mu_f / k_p / pars.h_f
-
-    i_p = X_p > x_p_0
-    i_m = ~i_p
-
-    # gel pt in solid region
-    phi_g = np.zeros(N)
-    phi_g[i_p] = pars.phi_g
-
-    if user_phi_g == None:
-        phi_g[i_m] = pars.phi_0 * h_0(X_f[i_m], pars) / h_g[i_m]
-    else:
-        phi_g[i_m] = user_phi_g
-
-
-    # film thickness in solid region
-    h_p = pars.phi_0 / pars.phi_p * h_0(X_p, pars)
-
-    # solve
-    i = X_p < 2
-    p_0 = sigma_e_zz(pars.phi_p, phi_g[0], pars)
-    p = p_0 + p_scale / pars.G_0 * cumulative_trapezoid(-q_p(X_p[i]) / h_p[i], X_p[i], initial=0)
-
     # solid stress
-    sigma_s = sigma_p(pars.phi_p, phi_g, p, pars)
+    sigma_s = (pars.sigma_p / pars.G_0) * np.ones(N)
 
 
     # build global arrays
@@ -263,7 +202,7 @@ def compute_post_quantities(t, x_p, x_p_0, pars, user_phi_g = None):
     return X, H, Sigma, Phi_s
 
 
-def compute_w_post(t, x_p, pars, user_phi_g = None):
+def compute_w_post(t, x_p, pars):
     """
     Computes the deflection after t_g_salt.  Here,
     G_fun is a function that computes the shear modulus
@@ -276,7 +215,7 @@ def compute_w_post(t, x_p, pars, user_phi_g = None):
 
     for n in range(Nt):
 
-        X, H, Sigma, _ = compute_post_quantities(t[n], x_p[n], x_p[0], pars, user_phi_g)
+        X, H, Sigma, _ = compute_post_quantities(t[n], x_p[n], x_p[0], pars)
 
         X /= 2
 
@@ -303,29 +242,16 @@ def main():
         # create params assuming c_s = 1 M
         pars = Params(rh)
 
-        # adjust the max packing fraction
-        pars.phi_p *= (0.2)**(1/4)
-
-        if rh == 20:
-            user_phi_g = 0.31
-        elif rh == 40:
-            user_phi_g = 0.21
-        elif rh == 60:
-            user_phi_g = 0.16
-        elif rh == 80:
-            user_phi_g = 0.10
-
         # turn off the stress in the central colloidal gel after t_g_s
-        pars.incremental = 0
-        # user_phi_g = None
+        # pars.incremental = 0
 
         # solve pre-gelation model
         sol_pre = solve_x_p((0, pars.t_g / pars.t_d), 1-1e-6, pars)
         w_pre = compute_w_pre(sol_pre.t, sol_pre.y[0], pars)
 
         # solve post-gelation model
-        sol_post = solve_x_p((pars.t_g / pars.t_d, 0.2), sol_pre.y[0, -1], pars)
-        w_post = compute_w_post(sol_post.t, sol_post.y[0], pars, user_phi_g=user_phi_g)
+        sol_post = solve_x_p((pars.t_g / pars.t_d, pars.t_end), sol_pre.y[0, -1], pars)
+        w_post = compute_w_post(sol_post.t, sol_post.y[0], pars)
 
         t_all = np.r_[sol_pre.t, sol_post.t]
         w_all = np.r_[w_pre, w_post]
@@ -337,14 +263,15 @@ def main():
 
         # deflection
         plot = ax_w.plot
-        plot(t_all, w_all, lw = 2, label = f'RH = {rh}')
+        p = plot(t_all, w_all, lw = 2, label = f'RH = {rh}')
+        plot(sol_pre.t[-1], w_pre[-1], 's', ms = 6, mec = 'k', mfc = p[0].get_color(), zorder = 10)
         ax_w.set_xlabel('$t / t_d$')
         ax_w.set_ylabel('$\Delta w / h_s$')
         ax_w.legend()
         ax_w.set_ylim((0, 20))
 
         # packing front
-        ax_x.plot(t_all, x_p_all, lw = 2, label = f'RH = {rh}')
+        ax_x.plot(t_all, x_p_all, lw = 2, label = f'RH = {rh}', c =p[0].get_color())
         ax_x.legend()
         ax_x.set_xlabel('$t / t_d$')
         ax_x.set_ylabel('$x_p / L$')
