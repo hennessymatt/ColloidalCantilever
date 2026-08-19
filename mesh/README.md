@@ -1,0 +1,1 @@
+This folder contains file to generate the finite element nesh.  The file `makemesh3` is a script that automatically converts the Gmsh .geo file into a .h5 mesh that can be imported using the FEniCS package.
